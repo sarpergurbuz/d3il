@@ -1,25 +1,20 @@
 #!/bin/bash
+set -e
 
 ############ GENERAL ENV SETUP ############
-echo New Environment Name:
-read envname
-
-echo Creating new conda environment $envname
-conda create -n $envname python=3.10.8 -y -q
 
 eval "$(conda shell.bash hook)"
-conda activate $envname
+conda activate d3il
 
-echo
-echo Activating $envname
-if [[ "$CONDA_DEFAULT_ENV" != "$envname" ]]
-then
-    echo Failed to activate conda environment.
+if [[ "$CONDA_DEFAULT_ENV" != "d3il" ]]; then
+    echo "Please activate the d3il environment first."
     exit 1
 fi
 
 ### Set Channel vars
 conda config --add channels conda-forge
+conda config --add channels pytorch
+conda config --add channels nvidia
 conda config --set channel_priority strict
 
 
@@ -31,9 +26,13 @@ conda install mamba -c conda-forge -y -q
 ############ REQUIRED DEPENDENCIES (PYBULLET) ############
 echo Installing dependencies...
 
-mamba install -c conda-forge pytorch==1.13.0 torchvision==0.14.0
+mamba install pytorch==1.13.0 torchvision==0.14.0 pytorch-cuda=11.7 -c pytorch -c nvidia -y -q
 
-mamba install -c conda-forge pybullet pyyaml scipy opencv pinocchio matplotlib gin-config gym==0.21.0 -y -q
+mamba install -c conda-forge pybullet pyyaml scipy opencv pinocchio matplotlib gin-config -y -q
+
+python -m pip install --upgrade "pip<24" setuptools wheel
+pip install "gym==0.21.0"
+
 
 # Open3D for PointClouds and its dependencies. Why does it not install them directly?
 mamba install -c conda-forge scikit-learn addict pandas plyfile tqdm -y -q
