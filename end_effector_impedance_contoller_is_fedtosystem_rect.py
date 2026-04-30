@@ -27,9 +27,9 @@ OBSTACLE_RADIUS = 0.03
 SAFETY_MARGIN = 0.01
 
 # Rectangular end-effector footprint
-RECT_LENGTH = 0.1   # along local x-axis
+RECT_LENGTH = 0.12   # along local x-axis
 RECT_WIDTH = 0.01    # along local y-axis
-GHOST_MARGIN_LENGTH = 0.0  # extra margin added to rectangle dimensions during optimization to encourage more conservative solutions
+GHOST_MARGIN_LENGTH = 0.014  # extra margin added to rectangle dimensions during optimization to encourage more conservative solutions
 
 
 # ============================================================
@@ -939,13 +939,17 @@ EXAMPLE_TRAJECTORY_XY = np.array([
     [0.19989581, -0.6881308],
 ])
 
+def shift_trajectory(trajectory, shift):
+    return trajectory + np.array(shift)
+
+shifted_trajectory = shift_trajectory(EXAMPLE_TRAJECTORY_XY, shift=(0.01, 0.01))
 
 # ============================================================
 # 5) Run
 # ============================================================
 
 if __name__ == "__main__":
-    path_ref = EXAMPLE_TRAJECTORY_XY.copy()
+    path_ref = shifted_trajectory.copy()
     dt = 0.08
 
     start_time = time.perf_counter()
@@ -988,17 +992,17 @@ if __name__ == "__main__":
         w_obs=5e12,
         w_bound=1e12,
 
-        w_terminal_track=1e8,
+        w_terminal_track=1e12,
         w_terminal_theta=1e4,
-        w_terminal_vel=1e10,
-        w_terminal_omega=1e8,
-        w_terminal_acc=1e9,
-        w_terminal_alpha=1e8,
+        w_terminal_vel=1e12,
+        w_terminal_omega=1e12,
+        w_terminal_acc=1e12,
+        w_terminal_alpha=1e12,
 
         boundary_window=30,
         boundary_gain=20.0,
 
-        max_iter=100,
+        max_iter=70,
     )
 
     elapsed_s = time.perf_counter() - start_time
