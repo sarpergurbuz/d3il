@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import time
 from matplotlib.patches import Rectangle
 from matplotlib.transforms import Affine2D
-
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ============================================================
 # 0) Obstacles
@@ -28,7 +28,7 @@ SAFETY_MARGIN = 0.01
 
 # Rectangular end-effector footprint
 RECT_LENGTH = 0.12   # along local x-axis
-RECT_WIDTH = 0.01    # along local y-axis
+RECT_WIDTH = 0.015    # along local y-axis
 GHOST_MARGIN_LENGTH = 0.014  # extra margin added to rectangle dimensions during optimization to encourage more conservative solutions
 
 
@@ -215,6 +215,59 @@ def rectangle_obstacle_cost_grad_hess(
     return f0, grad, hess_psd
 
 
+def is_real_rectangle_colliding_with_inflated_obstacles(
+    pose_trajectory,
+    obstacles,
+    rect_length,
+    rect_width,
+    inflated_obstacle_radius,
+    return_colliding_timesteps=False,
+):
+    """
+    Check if the real rectangle (without ghost margin) collides with inflated obstacles.
+    
+    Args:
+        pose_trajectory: (T, 3) array of [px, py, theta] at each timestep
+        obstacles: (N, 2) array of obstacle positions
+        rect_length: actual rectangle length (NOT inflated)
+        rect_width: actual rectangle width (NOT inflated)
+        inflated_obstacle_radius: radius of obstacles including safety margin
+        return_colliding_timesteps: if True, return list of timestep indices with collisions
+        
+    Returns:
+        is_colliding: bool, True if any collision detected
+        colliding_timesteps: list of timestep indices (only if return_colliding_timesteps=True)
+    """
+    pose_trajectory = np.asarray(pose_trajectory, dtype=np.float64)
+    obstacles = np.asarray(obstacles, dtype=np.float64)
+    
+    T = pose_trajectory.shape[0]
+    colliding_timesteps = []
+    
+    for t in range(T):
+        q = pose_trajectory[t]  # [px, py, theta]
+        
+        # Compute cost for this pose
+        cost = rectangle_circle_collision_cost_vec(
+            q,
+            obstacles,
+            rect_length,
+            rect_width,
+            inflated_obstacle_radius,
+            w_obs=1.0,  # weight doesn't matter for binary check
+        )
+        
+        if cost > 1e-9:  # Any positive cost indicates collision
+            colliding_timesteps.append(t)
+    
+    is_colliding = len(colliding_timesteps) > 0
+    
+    if return_colliding_timesteps:
+        return is_colliding, colliding_timesteps
+    else:
+        return is_colliding
+
+
 # ============================================================
 # 2) Dynamics: 2D rectangle pose with jerk input
 # ============================================================
@@ -322,6 +375,7 @@ def optimize_rectangle_pose_ilqr(
 
     max_iter=100,
     reg=1e-6,
+    early_stop_if_no_coll=False,
 ):
     path_ref = np.asarray(path_ref, dtype=np.float64)
     obstacles_xy = np.asarray(obstacles_xy, dtype=np.float64)
@@ -792,6 +846,20 @@ def optimize_rectangle_pose_ilqr(
 
         print(f"iter {it:03d} | cost {old_cost:.6e} | reg {reg:.1e} | accepted {accepted}")
 
+        # Early stopping if no collision detected
+        if early_stop_if_no_coll and accepted:
+            is_colliding = is_real_rectangle_colliding_with_inflated_obstacles(
+                xs,
+                obstacles_xy,
+                rect_length=rect_length,
+                rect_width=rect_width,
+                inflated_obstacle_radius=inflated_obstacle_radius,
+                return_colliding_timesteps=False,
+            )
+            if not is_colliding:
+                print(f"Early stopping: No collision detected at iteration {it}")
+                break
+
         if not accepted:
             reg *= 10.0
         else:
@@ -825,6 +893,71 @@ def optimize_rectangle_pose_ilqr(
         "m_eff": m_eff,
         "k_imp": k_imp,
         "d_imp": d_imp,
+    }
+
+def run_one_optimization(args):
+    idx, path_ref, obstacles_xy = args
+
+    out = optimize_rectangle_pose_ilqr(
+        path_ref=path_ref,
+        obstacles_xy=obstacles_xy,
+        obstacle_radius=OBSTACLE_RADIUS,
+        safety_margin=SAFETY_MARGIN,
+        rect_length=RECT_LENGTH,
+        rect_width=RECT_WIDTH,
+        dt=0.08,
+
+        m_eff=5.0,
+        k_imp=250.0,
+        d_imp=30.0,
+
+        v_max=0.5,
+        omega_max=2.0,
+        a_max=0.5,
+        alpha_max=5.0,
+        j_max=2.0,
+        jtheta_max=20.0,
+
+        w_track=80.0,
+        w_theta_ref=10000.0,
+
+        w_vel=1.0,
+        w_omega=1.0,
+        w_acc=5.0,
+        w_alpha=1.0,
+        w_jerk=50.0,
+        w_jtheta=5.0,
+
+        w_impedance_acc=100.0,
+        w_terminal_impedance_acc=1e9,
+
+        w_curve_vel=100.0,
+
+        w_obs=5e12,
+        w_bound=1e12,
+
+        w_terminal_track=1e12,
+        w_terminal_theta=1e4,
+        w_terminal_vel=1e12,
+        w_terminal_omega=1e12,
+        w_terminal_acc=1e12,
+        w_terminal_alpha=1e12,
+
+        boundary_window=30,
+        boundary_gain=20.0,
+
+        max_iter=100,
+    )
+
+    return {
+        "idx": idx,
+        "pose": out["pose"],
+        "pos": out["pos"],
+        "theta": out["theta"],
+        "vel": out["vel"],
+        "acc": out["acc"],
+        "cost": out["cost"],
+        "cost_trace": out["cost_trace"],
     }
 
 
@@ -939,10 +1072,117 @@ EXAMPLE_TRAJECTORY_XY = np.array([
     [0.19989581, -0.6881308],
 ])
 
+EXAMPLE_TRAJECTORY_XY = np.array([
+    [-0.0181752387, -0.72285533],
+    [-0.0182826314, -0.721562386],
+    [-0.0187931526, -0.718587756],
+    [-0.0195695981, -0.713910818],
+    [-0.020619154, -0.707542539],
+    [-0.0219600108, -0.699641466],
+    [-0.0234486908, -0.690342665],
+    [-0.0251811855, -0.67990458],
+    [-0.0258083977, -0.675315619],
+    [-0.0261087772, -0.671167076],
+    [-0.0261490084, -0.66736275],
+    [-0.0258464031, -0.663981438],
+    [-0.0252859127, -0.660928071],
+    [-0.0244018193, -0.658138514],
+    [-0.0232739858, -0.655465841],
+    [-0.0218265504, -0.652814329],
+    [-0.0201819018, -0.649933696],
+    [-0.0183195397, -0.646579027],
+    [-0.0162557345, -0.642619073],
+    [-0.0139964512, -0.637949109],
+    [-0.0116316732, -0.632236838],
+    [-0.0091215698, -0.625447094],
+    [-0.00655689463, -0.617453575],
+    [-0.00394920586, -0.60830766],
+    [-0.00141878973, -0.598303914],
+    [0.000979635632, -0.587661505],
+    [0.00376087357, -0.576896012],
+    [0.00685580773, -0.566164732],
+    [0.0105500817, -0.555469096],
+    [0.0148317823, -0.544791222],
+    [0.0199324433, -0.535288453],
+    [0.0259659681, -0.528047144],
+    [0.0329334214, -0.52221477],
+    [0.0405612737, -0.517807722],
+    [0.0494087562, -0.514575958],
+    [0.059487164, -0.512125373],
+    [0.0699103847, -0.509874642],
+    [0.0801029354, -0.507758498],
+    [0.0898341089, -0.50508666],
+    [0.0984420553, -0.501858354],
+    [0.105366722, -0.497331023],
+    [0.110990301, -0.491362214],
+    [0.115660831, -0.483660817],
+    [0.119083799, -0.474673152],
+    [0.12147212, -0.464749128],
+    [0.123145893, -0.454691589],
+    [0.123738348, -0.445106626],
+    [0.124103315, -0.43685779],
+    [0.123157948, -0.428984523],
+    [0.121226825, -0.421689034],
+    [0.117656633, -0.414505482],
+    [0.11244452, -0.407604247],
+    [0.106560156, -0.401836336],
+    [0.100817464, -0.397680879],
+    [0.0953141898, -0.394613892],
+    [0.089576669, -0.392506242],
+    [0.0836822689, -0.390667439],
+    [0.0773442835, -0.389299035],
+    [0.0706656575, -0.387809396],
+    [0.0635983497, -0.386249304],
+    [0.0562154651, -0.38406378],
+    [0.0489600189, -0.381601959],
+    [0.0421844721, -0.378293812],
+    [0.0364344791, -0.374068946],
+    [0.0313379131, -0.369255543],
+    [0.0265613105, -0.362685829],
+    [0.0207137205, -0.353454113],
+    [0.015356794, -0.343322456],
+    [0.0116777271, -0.331797183],
+    [0.00813977234, -0.320455223],
+    [0.00636997819, -0.309599429],
+    [0.00526259281, -0.299095869],
+    [0.00389238773, -0.289188147],
+    [0.00287081162, -0.280411184],
+    [0.00175922376, -0.272402436],
+    [0.000517008186, -0.264931917],
+    [-0.000863416819, -0.257463783],
+    [-0.00256908801, -0.249835074],
+    [-0.00405084528, -0.24190402],
+    [-0.00540609751, -0.233503446],
+    [-0.00651736977, -0.224530369],
+    [-0.00738459267, -0.215157092],
+    [-0.0080045145, -0.205277726],
+    [-0.00824541692, -0.195207804],
+    [-0.00815384649, -0.184928983],
+    [-0.0076299361, -0.174545527],
+    [-0.00692513958, -0.164362058],
+    [-0.00598923909, -0.15463689],
+    [-0.0051082857, -0.145323679],
+    [-0.004522481, -0.136594176],
+    [-0.00439489819, -0.128357351],
+    [-0.0047902735, -0.120716602],
+    [-0.00562543981, -0.113344818],
+    [-0.00706633553, -0.106385954],
+    [-0.00893604755, -0.0995079577],
+    [-0.0116783194, -0.092959322],
+    [-0.0150155574, -0.0865885317],
+    [-0.0268998742, -0.0777485818],
+    [-0.0379890725, -0.0708223432],
+    [-0.0480881594, -0.0660002008],
+    [-0.0565996394, -0.0625890791],
+    [-0.0634488612, -0.0604752153],
+    [-0.0683596507, -0.0594567135],
+    [-0.0713468343, -0.0593041405],
+], dtype=np.float64)
+
 def shift_trajectory(trajectory, shift):
     return trajectory + np.array(shift)
 
-shifted_trajectory = shift_trajectory(EXAMPLE_TRAJECTORY_XY, shift=(0.01, 0.01))
+shifted_trajectory = shift_trajectory(EXAMPLE_TRAJECTORY_XY, shift=(0.0, 0.0))
 
 # ============================================================
 # 5) Run
@@ -992,9 +1232,9 @@ if __name__ == "__main__":
         w_obs=5e12,
         w_bound=1e12,
 
-        w_terminal_track=1e12,
+        w_terminal_track=1e13,
         w_terminal_theta=1e4,
-        w_terminal_vel=1e12,
+        w_terminal_vel=1e13,
         w_terminal_omega=1e12,
         w_terminal_acc=1e12,
         w_terminal_alpha=1e12,
@@ -1002,8 +1242,46 @@ if __name__ == "__main__":
         boundary_window=30,
         boundary_gain=20.0,
 
-        max_iter=70,
+        max_iter=100,
     )
+
+    # paths = [
+    #     EXAMPLE_TRAJECTORY_XY.copy(),
+    #     EXAMPLE_TRAJECTORY_XY.copy() + np.array([0.01, 0.0]),
+    #     EXAMPLE_TRAJECTORY_XY.copy() + np.array([-0.01, 0.0]),
+    #     EXAMPLE_TRAJECTORY_XY.copy() + np.array([0.0, 0.01]),
+    #     EXAMPLE_TRAJECTORY_XY.copy() + np.array([0.0, -0.01]),
+    #     EXAMPLE_TRAJECTORY_XY.copy() + np.array([0.005, 0.005]),
+        
+
+        
+        
+
+        
+    # ]
+
+    # jobs = [
+    #     (i, path, obstacles_xy_raw)
+    #     for i, path in enumerate(paths)
+    # ]
+
+    # results = []
+
+    # with ProcessPoolExecutor(max_workers=6) as executor:
+    #     futures = [executor.submit(run_one_optimization, job) for job in jobs]
+
+    #     for future in as_completed(futures):
+    #         result = future.result()
+    #         results.append(result)
+    #         print(f"Finished optimization {result['idx']} | cost = {result['cost']:.3e}")
+
+    # results = sorted(results, key=lambda r: r["idx"])
+
+    # elapsed_s = time.perf_counter() - start_time
+    # print("Total parallel execution time [s]:", elapsed_s)
+
+    # import os
+    # print(os.cpu_count())
 
     elapsed_s = time.perf_counter() - start_time
 
@@ -1027,6 +1305,20 @@ if __name__ == "__main__":
     print("start omega:", out["omega"][0], "end omega:", out["omega"][-1])
     print("start acc:", out["acc"][0], "end acc:", out["acc"][-1])
     print("start alpha:", out["alpha"][0], "end alpha:", out["alpha"][-1])
+
+    # Check for collisions with real rectangle (without ghost margin)
+    is_colliding, colliding_timesteps = is_real_rectangle_colliding_with_inflated_obstacles(
+        out["pose"],
+        obstacles_xy_raw,
+        rect_length=RECT_LENGTH,
+        rect_width=RECT_WIDTH,
+        inflated_obstacle_radius=OBSTACLE_RADIUS + SAFETY_MARGIN,
+        return_colliding_timesteps=True,
+    )
+    print(f"\nReal rectangle collision: {is_colliding}")
+    if is_colliding:
+        print(f"  Colliding timesteps: {colliding_timesteps}")
+    print()
 
     pose_opt = out["pose"]
     pos_opt = out["pos"]
