@@ -9,12 +9,48 @@ from environments.d3il.d3il_sim.core.logger import ObjectLogger, CamLogger
 from environments.d3il.d3il_sim.sims.mj_beta.MjRobot import MjRobot
 from environments.d3il.d3il_sim.sims.mj_beta.MjFactory import MjFactory
 from environments.d3il.d3il_sim.sims import MjCamera
+from environments.d3il.d3il_sim.sims.universal_sim.PrimitiveObjects import Box
 
 from .objects.avoiding_objects import get_obj_list, \
     init_end_eff_pos, \
-    get_obj_xy_list
+    get_obj_xy_list, \
+    get_obstacle_names, \
+    get_finish_point, \
+    GOAL_SAFE_RADIUS
 
 obj_list = get_obj_list()
+
+
+def create_trajectory_markers(trajectory_xy, fixed_z=0.12, marker_radius=0.005):
+    """
+    Create small sphere markers for trajectory visualization.
+    
+    Args:
+        trajectory_xy: (N, 2) array of [x, y] waypoints
+        fixed_z: z-position for all markers
+        marker_radius: radius of small spheres
+    
+    Returns:
+        List of Box objects (used as sphere markers, visual_only)
+    """
+    markers = []
+    trajectory_xy = np.asarray(trajectory_xy)
+    if trajectory_xy.ndim != 2 or trajectory_xy.shape[1] < 2:
+        raise ValueError("trajectory_xy must have shape (N, 2) or (N, 4)")
+
+    trajectory_xy = trajectory_xy[:, :2]
+    for i, (x, y) in enumerate(trajectory_xy):
+        marker = Box(
+            name=f'traj_marker_{i}',
+            init_pos=[x, y, fixed_z],
+            init_quat=[1, 0, 0, 0],
+            size=[marker_radius, marker_radius, marker_radius],
+            rgba=[0, 1, 1, 0.6],  # Cyan color
+            visual_only=True,
+            static=True
+        )
+        markers.append(marker)
+    return markers
 
 
 class BPCageCam(MjCamera):
@@ -55,7 +91,9 @@ class ObstacleAvoidanceEnv(GymEnvWrapper):
             n_substeps: int = 35,
             max_steps_per_episode: int = 250,
             debug: bool = False,
-            render: bool = False
+            render: bool = False,
+            trajectory_xy: np.ndarray = None,
+    initial_cart_position: np.ndarray = None,
     ):
 
         sim_factory = MjFactory()
@@ -79,6 +117,11 @@ class ObstacleAvoidanceEnv(GymEnvWrapper):
 
         self.manager = ObstacleAvoidanceManager()
 
+        if initial_cart_position is None:
+            self.initial_cart_position = copy.deepcopy(init_end_eff_pos)
+        else:
+            self.initial_cart_position = np.asarray(initial_cart_position, dtype=float).copy()
+
         self.bp_cam = BPCageCam()
 
         self.scene.add_object(self.bp_cam)
@@ -90,8 +133,27 @@ class ObstacleAvoidanceEnv(GymEnvWrapper):
             scene.add_logger(v)
 
         self.obj_xy_list = get_obj_xy_list()
+        self.obstacle_names = get_obstacle_names()
 
-        self.target_min_dist = 0.06
+        if trajectory_xy is not None:
+            trajectory_xy = np.asarray(trajectory_xy, dtype=float)
+            self.goal_xy = trajectory_xy[-1, :2].copy()
+        else:
+            self.goal_xy = np.array([0.4, -0.1 + 2.5 * 0.18], dtype=float)
+
+        self.finish_point = get_finish_point(self.goal_xy, safe_radius=GOAL_SAFE_RADIUS)
+        self.scene.add_object(self.finish_point)
+
+        # Add trajectory markers if provided
+        if trajectory_xy is not None:
+            trajectory_xy = np.asarray(trajectory_xy)
+            init_z = self.initial_cart_position[2]  # Use same Z as initial end effector
+            trajectory_markers = create_trajectory_markers(trajectory_xy, fixed_z=init_z)
+            #for marker in trajectory_markers:
+                #self.scene.add_object(marker)
+            #print(f"Added {len(trajectory_markers)} trajectory markers to scene")
+
+        self.target_min_dist = GOAL_SAFE_RADIUS
 
         level_distance = 0.18
         obstacle_offset = 0.075
@@ -140,7 +202,7 @@ class ObstacleAvoidanceEnv(GymEnvWrapper):
             pass
 
         # reset the initial state of the robot
-        initial_cart_position = copy.deepcopy(init_end_eff_pos)
+        initial_cart_position = copy.deepcopy(self.initial_cart_position)
         # initial_cart_position[2] = 0.12
         self.robot.gotoCartPosQuatController.setDesiredPos(
             [
@@ -202,26 +264,15 @@ class ObstacleAvoidanceEnv(GymEnvWrapper):
             self.l3_passed = True
 
     def check_failure(self):
-        if has_collision('l1_obs', 'rod', self.scene.model, self.scene.data):
-            return True
-        elif has_collision('l2_top_obs', 'rod', self.scene.model, self.scene.data):
-            return True
-        elif has_collision('l2_bottom_obs', 'rod', self.scene.model, self.scene.data):
-            return True
-        elif has_collision('l3_top_obs', 'rod', self.scene.model, self.scene.data):
-            return True
-        elif has_collision('l3_mid_obs', 'rod', self.scene.model, self.scene.data):
-            return True
-        elif has_collision('l3_bottom_obs', 'rod', self.scene.model, self.scene.data):
-            return True
-        else:
-            return False
+        for obstacle_name in self.obstacle_names:
+            if has_collision(obstacle_name, 'rod', self.scene.model, self.scene.data):
+                return True
+        return False
 
     def check_success(self):
-        if self.robot.current_c_pos[1] > self.goal_ypos:
-            return True
-        else:
-            return False
+        goal_pos = np.asarray(self.goal_xy, dtype=float)
+        current_pos = np.asarray(self.robot.current_c_pos[:2], dtype=float)
+        return np.linalg.norm(current_pos - goal_pos) <= self.target_min_dist
 
     def reset_mode_encoding(self):
         self.l1_passed = False

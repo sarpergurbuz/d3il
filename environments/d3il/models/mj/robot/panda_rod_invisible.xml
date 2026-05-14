@@ -75,9 +75,9 @@
                                                     <site name="tcp" rgba="0 0 1 0" size='0.001' />
                                                 </body>
                                                 <body name="rod">
-                                                      <geom type="cylinder" size="0.01 0.15" pos="0 0 0.075" name="rod:geom"/>
+                                                      <geom type="box" size="0.04 0.005 0.075" pos="0 0 0.15" name="rod:geom"/>
                                                       <body name="rod:tip">
-                                                            <geom type="sphere" size="0.01" pos="0 0 0.225" rgba="1 0 0 1" contype="0" conaffinity="0" name="rod:tip"/>
+                                                            <geom type="sphere" size="0.005" pos="0 0 0.15" rgba="1 0 0 1" name="rod:tip"/>
                                                       </body>
                                                 </body>
 
