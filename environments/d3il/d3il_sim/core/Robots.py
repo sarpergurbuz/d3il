@@ -58,10 +58,10 @@ class RobotBase:
         # joint velocity constraints -- more conservative limits from Frankas official website
         self.joint_vel_limit = np.array([2.00, 2.00, 2.00, 2.00, 2.50, 2.50, 2.50])
         self.joint_pos_min = np.array(
-            [-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973]
+            [-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -6.283185307179586]
         )
         self.joint_pos_max = np.array(
-            [2.8973, 1.7628, 2.0, -0.0698, 2.8973, 3.7525, 2.8973]
+            [2.8973, 1.7628, 2.0, -0.0698, 2.8973, 3.7525, 6.283185307179586]
         )
 
         self.clip_actions = True
