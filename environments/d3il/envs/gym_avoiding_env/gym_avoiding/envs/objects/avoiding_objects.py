@@ -39,14 +39,14 @@ DEFAULT_GOAL_XY = [0.4, _FIRST_LEVEL_Y + 2.5 * _LEVEL_DISTANCE]
 
 obs_centers_maze = EnvSetup.load_obs_centers(
     file_path=sim_framework_path(
-        "environments/d3il/d3il_sim/sims/universal_sim/test_envs/layout_4.yaml"
+        "environments/d3il/d3il_sim/sims/universal_sim/test_envs/layout_6.yaml"
     ),
     rotate_90on_z=True,
 )
 
 # Translate maze in x direction by 0.2 meters
 obs_centers_maze = shrink_size(obs_centers_maze, shrink_factor=SHRINK_FACTOR)
-obs_centers_maze = EnvSetup.translate_in_x(obs_centers_maze, offset_x=0.2)
+obs_centers_maze = EnvSetup.translate_in_x(obs_centers_maze, offset_x=0.3)
 
 
 def get_finish_point(goal_xy=None, safe_radius=GOAL_SAFE_RADIUS):
