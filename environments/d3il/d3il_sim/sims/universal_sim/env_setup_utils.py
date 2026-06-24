@@ -5,7 +5,7 @@ import numpy as np
 import yaml
 
 
-SHRINK_FACTOR = 1.5
+SHRINK_FACTOR = 2
 
 
 def _ensure_planar_array(points_xy):
