@@ -61,7 +61,7 @@
                                     <geom mesh="link6v" name="panda_link6:geom2" rgba="1 1 1 0.1" type="mesh" />
                                     <body name="panda_link7" pos="0.088 0 0" quat="0.707107 0.707107 0 0">
                                         <inertial diaginertia="0.000637671 0.000528056 0.000279577" mass="0.417345" pos="0.0103614 0.0103596 0.0791078" quat="0.63547 0.278021 -0.670462 0.263369" />
-                                        <joint axis="0 0 1" limited="true" name="panda_joint7" pos="0 0 0" range="-2.9671 2.9671" />
+                                        <joint axis="0 0 1" limited="true" name="panda_joint7" pos="0 0 0" range="-6.283185307179586 6.283185307179586" />
                                         <geom conaffinity="0" contype="0" group="1" mesh="link7v" name="panda_link7:geom1" rgba="1 1 1 0.1" type="mesh" />
                                         <geom mesh="link7v" name="panda_link7:geom2" rgba="1 1 1 0.1" solimp="1.998 1.999 0" type="mesh" />
                                         <body name="panda_link8" pos="0 0 0.107">
@@ -75,9 +75,9 @@
                                                     <site name="tcp" rgba="0 0 1 0" size='0.001' />
                                                 </body>
                                                 <body name="rod">
-                                                      <geom type="box" size="0.04 0.005 0.075" pos="0 0 0.15" name="rod:geom"/>
+                                                      <geom type="box" size="0.03 0.00375 0.075" pos="0.015 0 0.15" name="rod:geom"/>
                                                       <body name="rod:tip">
-                                                            <geom type="sphere" size="0.005" pos="0 0 0.15" rgba="1 0 0 1" name="rod:tip"/>
+                                                            <geom type="sphere" size="0.002" pos="0 0 0.15" rgba="1 0 0 1" name="rod:tip"/>
                                                       </body>
                                                 </body>
 
