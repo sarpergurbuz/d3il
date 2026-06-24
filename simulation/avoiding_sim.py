@@ -10,116 +10,20 @@ import wandb
 from environments.d3il.d3il_sim.sims.universal_sim.env_setup_utils import EnvSetup, shrink_size, SHRINK_FACTOR
 
 from simulation.base_sim import BaseSim
+import sys
+
+# Ensure repo root is on sys.path so package imports like `flow_matcher` work
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 log = logging.getLogger(__name__)
 
+# fixed trajectory speed (m/s) used to compute total duration from curve length
+TRAJ_SPEED = 0.05
+
 # Example smoothed trajectory for direct trajectory following
-EXAMPLE_TRAJECTORY_XY = np.array([
-    [-0.29119676, -0.27565762],
-    [-0.29114598, -0.27563619],
-    [-0.29080054, -0.27549205],
-    [-0.28991558, -0.27513126],
-    [-0.28830393, -0.27449233],
-    [-0.2858328, -0.27354314],
-    [-0.28241975, -0.27227735],
-    [-0.27802773, -0.27071028],
-    [-0.27265944, -0.26887465],
-    [-0.26635183, -0.26681646],
-    [-0.25917104, -0.2645914],
-    [-0.25120672, -0.2622612],
-    [-0.24256643, -0.25989014],
-    [-0.2333701, -0.25754198],
-    [-0.22374479, -0.25527714],
-    [-0.21381966, -0.2531503],
-    [-0.2037213, -0.25120826],
-    [-0.19356943, -0.24948815],
-    [-0.18347313, -0.24801593],
-    [-0.17352763, -0.24680534],
-    [-0.16381164, -0.2458575],
-    [-0.15438517, -0.2451611],
-    [-0.1452882, -0.2446932],
-    [-0.13654001, -0.24442117],
-    [-0.12813925, -0.24430587],
-    [-0.12006498, -0.24430645],
-    [-0.11227881, -0.24438676],
-    [-0.10472873, -0.24452311],
-    [-0.09735479, -0.2447126],
-    [-0.09009668, -0.24498116],
-    [-0.08290179, -0.2453891],
-    [-0.07573256, -0.24603238],
-    [-0.0685715, -0.24703752],
-    [-0.06142298, -0.24855217],
-    [-0.05431214, -0.25073389],
-    [-0.04728136, -0.25373723],
-    [-0.04038523, -0.25769866],
-    [-0.03368466, -0.26272032],
-    [-0.02724072, -0.26885392],
-    [-0.02110891, -0.2760865],
-    [-0.01533418, -0.28433077],
-    [-0.00994662, -0.29342255],
-    [-0.00495761, -0.30312771],
-    [-0.00035726, -0.31315837],
-    [0.00388558, -0.32319587],
-    [0.00782161, -0.33291857],
-    [0.01152, -0.34203216],
-    [0.01506823, -0.35029815],
-    [0.01857208, -0.3575556],
-    [0.02215292, -0.36373172],
-    [0.02594098, -0.36883966],
-    [0.03006551, -0.37296705],
-    [0.03464282, -0.37626098],
-    [0.03976324, -0.37891147],
-    [0.04547875, -0.38113481],
-    [0.05179476, -0.3831593],
-    [0.058665, -0.38521268],
-    [0.06599006, -0.38750977],
-    [0.07362056, -0.3902416],
-    [0.08136625, -0.39356648],
-    [0.08901113, -0.39760319],
-    [0.09633298, -0.40242711],
-    [0.10312517, -0.40806998],
-    [0.10921754, -0.41452432],
-    [0.11449214, -0.42175109],
-    [0.11888959, -0.42968711],
-    [0.12240598, -0.43825067],
-    [0.12508494, -0.4473466],
-    [0.12700808, -0.45687206],
-    [0.12828534, -0.46672339],
-    [0.12904532, -0.47680198],
-    [0.12942677, -0.48701913],
-    [0.12957166, -0.49729899],
-    [0.12961981, -0.50757896],
-    [0.12970475, -0.51780744],
-    [0.12994996, -0.52794027],
-    [0.13046313, -0.53793668],
-    [0.13132988, -0.54775656],
-    [0.13260987, -0.55735951],
-    [0.13433604, -0.56670624],
-    [0.13651644, -0.57576183],
-    [0.1391377, -0.58449964],
-    [0.1421693, -0.59290465],
-    [0.14556773, -0.60097495],
-    [0.14927995, -0.6087207],
-    [0.15324601, -0.61616064],
-    [0.15740097, -0.62331704],
-    [0.161676, -0.63021018],
-    [0.16599946, -0.63685327],
-    [0.17029829, -0.64324851],
-    [0.17449977, -0.64938476],
-    [0.17853351, -0.6552368],
-    [0.18233345, -0.66076602],
-    [0.18583982, -0.66592249],
-    [0.18900109, -0.67064839],
-    [0.1917758, -0.67488273],
-    [0.19413433, -0.67856703],
-    [0.19606076, -0.68165222],
-    [0.1975549, -0.68410663],
-    [0.19863445, -0.68592505],
-    [0.19933707, -0.68713747],
-    [0.19972219, -0.68781714],
-    [0.19987246, -0.68808764],
-    [0.19989483, -0.68812848],
-])
+
 
 EXAMPLE_TRAJECTORY = np.fromstring(
     """
@@ -305,37 +209,80 @@ class Avoiding_Sim(BaseSim):
         print(os.getpid(), cpu_set)
         assign_process_to_cpu(os.getpid(), cpu_set)
 
-        # Prepare trajectory once (for both visualization and execution)
-        trajectory = shrink_size(EXAMPLE_TRAJECTORY, shrink_factor=SHRINK_FACTOR)
-        
-        # Apply planner-to-sim frame rotation
-        if self.rotate_planner_frame_90on_z:
-            trajectory = EnvSetup.planner_to_sim_xy(
-                trajectory,
-                rotate_90on_z=True,
-            )
-        
-        # Translate trajectory in x by 0.2 meters (after rotation, in sim frame)
-        trajectory = EnvSetup.translate_in_x(trajectory, offset_x=0.2)
-        
-        initial_cart_position = np.array([
-            trajectory[0, 0],
-            trajectory[0, 1],
-            0.12,
-        ])
-
-        env = ObstacleAvoidanceEnv(
-            render=self.render,
-            trajectory_xy=trajectory,
-            initial_cart_position=initial_cart_position,
-        )
-        env.start()
+        # We'll sample a fresh trajectory for each rollout below (so each run is different)
 
         random.seed(pid)
         torch.manual_seed(pid)
         np.random.seed(pid)
 
+        # Sample initial trajectory and create/start env once so only one window opens
+        try:
+            from flow_matcher.generatesamplesfrommodel_Unet_generalized import sample_a_collision_free_trajectory
+            sampled_traj = sample_a_collision_free_trajectory()
+        except Exception as exc:
+            log.warning(f"Falling back to EXAMPLE_TRAJECTORY due to sampling error: {exc}")
+            sampled_traj = EXAMPLE_TRAJECTORY
+
+        # Coerce sampled trajectory to (N,2) or (N,4)
+        sampled_arr = np.asarray(sampled_traj, dtype=float)
+        if sampled_arr.ndim == 3 and sampled_arr.shape[0] == 1:
+            sampled_arr = sampled_arr.squeeze(0)
+        elif sampled_arr.ndim == 1:
+            if sampled_arr.size % 4 == 0:
+                sampled_arr = sampled_arr.reshape(-1, 4)
+        elif sampled_arr.ndim == 2 and sampled_arr.shape[1] not in (2, 4):
+            if sampled_arr.shape[0] in (2, 4) and sampled_arr.shape[1] > 4:
+                sampled_arr = sampled_arr.T
+
+        if sampled_arr.ndim != 2 or sampled_arr.shape[1] not in (2, 4):
+            raise ValueError(f"Sampled trajectory has unsupported shape after coercion: {sampled_arr.shape}")
+
+        trajectory = shrink_size(sampled_arr, shrink_factor=SHRINK_FACTOR)
+        if self.rotate_planner_frame_90on_z:
+            trajectory = EnvSetup.planner_to_sim_xy(trajectory, rotate_90on_z=True)
+        trajectory = EnvSetup.translate_in_x(trajectory, offset_x=0.3)
+
+        initial_cart_position = np.array([trajectory[0, 0], trajectory[0, 1], 0.12])
+
+        env = ObstacleAvoidanceEnv(render=self.render, trajectory_xy=trajectory, initial_cart_position=initial_cart_position)
+        env.start()
+
+        # run rollouts, updating the trajectory between runs
         for i in range(n_trajectories):
+            if i == 0:
+                # already have trajectory used to construct env
+                pass
+            else:
+                try:
+                    sampled_traj = sample_a_collision_free_trajectory()
+                except Exception as exc:
+                    log.warning(f"Falling back to EXAMPLE_TRAJECTORY due to sampling error: {exc}")
+                    sampled_traj = EXAMPLE_TRAJECTORY
+
+                sampled_arr = np.asarray(sampled_traj, dtype=float)
+                if sampled_arr.ndim == 3 and sampled_arr.shape[0] == 1:
+                    sampled_arr = sampled_arr.squeeze(0)
+                elif sampled_arr.ndim == 1:
+                    if sampled_arr.size % 4 == 0:
+                        sampled_arr = sampled_arr.reshape(-1, 4)
+                elif sampled_arr.ndim == 2 and sampled_arr.shape[1] not in (2, 4):
+                    if sampled_arr.shape[0] in (2, 4) and sampled_arr.shape[1] > 4:
+                        sampled_arr = sampled_arr.T
+
+                if sampled_arr.ndim != 2 or sampled_arr.shape[1] not in (2, 4):
+                    raise ValueError(f"Sampled trajectory has unsupported shape after coercion: {sampled_arr.shape}")
+
+                trajectory = shrink_size(sampled_arr, shrink_factor=SHRINK_FACTOR)
+                if self.rotate_planner_frame_90on_z:
+                    trajectory = EnvSetup.planner_to_sim_xy(trajectory, rotate_90on_z=True)
+                trajectory = EnvSetup.translate_in_x(trajectory, offset_x=0.3)
+
+                # update env visualization for new trajectory without restarting scene
+                try:
+                    env.set_trajectory(trajectory)
+                    
+                except Exception:
+                    pass
 
             agent.reset()
 
@@ -346,8 +293,18 @@ class Avoiding_Sim(BaseSim):
             fixed_quat = np.array([0, 1, 0, 0])
 
             # Treat the knot points as a time-parameterized trajectory.
-            # The controller still runs at 1 ms, but we query the interpolated target at each step.
-            total_duration = trajectory.shape[0] * self.slowdown_factor * env.robot.dt
+            # Compute total duration from curve length (XY) and fixed speed, then
+            # derive a per-trajectory slowdown factor (used implicitly below).
+            xy = trajectory[:, :2]
+            if xy.shape[0] >= 2:
+                seg_dists = np.linalg.norm(np.diff(xy, axis=0), axis=1)
+                curve_length = float(np.sum(seg_dists))
+            else:
+                curve_length = 0.0
+
+            total_duration = curve_length / TRAJ_SPEED if TRAJ_SPEED > 0 else float(trajectory.shape[0] * self.slowdown_factor * env.robot.dt)
+            # local slowdown factor (float) representing how many controller dt steps per knot
+            slowdown_local = total_duration / (trajectory.shape[0] * env.robot.dt) if trajectory.shape[0] * env.robot.dt > 0 else float(self.slowdown_factor)
             desired_traj = interpolate_trajectory(
                 trajectory,
                 total_duration=total_duration,
@@ -421,7 +378,7 @@ class Avoiding_Sim(BaseSim):
             est_steps = int(EXAMPLE_TRAJECTORY.shape[0] * float(self.slowdown_factor)) + 10
         except Exception:
             est_steps = 150
-        max_steps = max(150, est_steps)
+        max_steps = max(150, est_steps) * 10
         robot_c_pos = torch.zeros([self.n_trajectories, max_steps, 2]).share_memory_()
 
         mode_encoding = torch.zeros([self.n_trajectories, 9]).share_memory_()
