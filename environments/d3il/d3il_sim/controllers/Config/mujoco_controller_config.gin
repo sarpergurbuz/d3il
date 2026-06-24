@@ -24,7 +24,7 @@ environments.d3il.d3il_sim.controllers.GainsInterface.CartPosControllerConfig.re
 
 # Cartesian Position Impedance Controller And Orientation
 environments.d3il.d3il_sim.controllers.GainsInterface.CartPosQuatControllerConfig.pgain_pos = [200.0, 200.0, 800.0]
-environments.d3il.d3il_sim.controllers.GainsInterface.CartPosQuatControllerConfig.pgain_null = [40, 40, 40, 40, 40, 40, 40]
+environments.d3il.d3il_sim.controllers.GainsInterface.CartPosQuatControllerConfig.pgain_null = [10, 10, 10, 10, 10, 10, 10]
 environments.d3il.d3il_sim.controllers.GainsInterface.CartPosQuatControllerConfig.J_reg = 1e-12
 environments.d3il.d3il_sim.controllers.GainsInterface.CartPosQuatControllerConfig.W = [1, 1, 1, 1, 1, 1, 1]
 environments.d3il.d3il_sim.controllers.GainsInterface.CartPosQuatControllerConfig.rest_posture = [0, 0.174, 0, -0.872, 0, 1.222, 0.785]
