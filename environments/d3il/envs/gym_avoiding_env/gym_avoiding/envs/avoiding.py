@@ -21,7 +21,7 @@ from .objects.avoiding_objects import get_obj_list, \
 obj_list = get_obj_list()
 
 
-def create_trajectory_markers(trajectory_xy, fixed_z=0.12, marker_radius=0.005):
+def create_trajectory_markers(trajectory_xy, fixed_z=0.12, marker_radius=0.002):
     """
     Create small sphere markers for trajectory visualization.
     
@@ -176,6 +176,60 @@ class ObstacleAvoidanceEnv(GymEnvWrapper):
 
         self.success = False
 
+        # track trajectory marker names so we can remove them when updating
+        self._trajectory_marker_names = []
+
+    def set_trajectory(self, trajectory_xy):
+        """
+        Update the environment's trajectory/goal visualization at runtime.
+        This does not restart the scene/viewer; it replaces the finish point
+        and trajectory markers so a single viewer can be reused across runs.
+
+        Args:
+            trajectory_xy: (N,2) or (N,4) array-like of waypoints in XY (planner frame assumed already)
+        """
+        trajectory_xy = np.asarray(trajectory_xy, dtype=float)
+        if trajectory_xy.ndim != 2 or trajectory_xy.shape[1] < 2:
+            raise ValueError("trajectory_xy must have shape (N,2) or (N,4)")
+
+        # update goal
+        self.goal_xy = trajectory_xy[-1, :2].copy()
+
+        # remove old finish point if present
+        try:
+            self.scene.remove_object(obj_name='finish_point')
+        except Exception:
+            pass
+
+        # add new finish point
+        self.finish_point = get_finish_point(self.goal_xy, safe_radius=GOAL_SAFE_RADIUS)
+        try:
+            self.scene.add_object(self.finish_point)
+        except Exception:
+            # some scene backends may not support runtime add; ignore
+            pass
+
+        # remove previous trajectory markers
+        for name in list(self._trajectory_marker_names):
+            try:
+                self.scene.remove_object(obj_name=name)
+            except Exception:
+                pass
+        self._trajectory_marker_names = []
+
+        # add new markers
+        try:
+            init_z = self.initial_cart_position[2]
+            trajectory_markers = create_trajectory_markers(trajectory_xy, fixed_z=init_z)
+            for marker in trajectory_markers:
+                try:
+                    self.scene.add_object(marker)
+                    self._trajectory_marker_names.append(marker.name)
+                except Exception:
+                    
+                    pass
+        except Exception:
+            pass
     def get_observation(self) -> np.ndarray:
         robot_c_pos = self.robot_state()[:2]
         return robot_c_pos.astype(np.float32)
@@ -219,7 +273,7 @@ class ObstacleAvoidanceEnv(GymEnvWrapper):
 
         self.robot.init_qpos = self.robot.gotoCartPosQuatController.trajectory[-1].copy()
         self.robot.init_tcp_pos = initial_cart_position
-        self.robot.init_tcp_quat = [0, 1, 0, 0]
+        #self.robot.init_tcp_quat = [0, 1, 0, 0]
 
         self.robot.beam_to_joint_pos(self.robot.gotoCartPosQuatController.trajectory[-1])
 
